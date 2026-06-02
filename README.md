@@ -11,11 +11,10 @@ This project implements an image restoration model based on **PromptIR** to remo
 
 Key contributions:
 - PromptIR backbone with channel-wise self-attention (O(C²), resolution-free)
-- Multi-term combined loss: Charbonnier + SSIM + Edge (Sobel) + Frequency (FFT)
-- Exponential Moving Average (EMA) of model weights for stable inference
-- 4-fold Test-Time Augmentation (TTA) using shape-preserving flips
-- Rain sample loss weighting (1.5×) to handle structured rain artifacts
-- Best validation PSNR: **29.45 dB**
+- Charbonnier loss with rain sample weighting (1.5×)
+- Gradient accumulation to simulate larger batch sizes
+- Mixed precision training (AMP) for memory efficiency
+- Best validation PSNR: **29.40 dB**
 
 ---
 
@@ -24,12 +23,6 @@ Key contributions:
 ```bash
 pip install torch torchvision --index-url https://download.pytorch.org/whl/cu121
 pip install numpy pillow matplotlib
-```
-
-Or install all dependencies at once:
-
-```bash
-pip install -r requirements.txt
 ```
 
 **Requirements:**
@@ -48,8 +41,8 @@ Place the dataset under `./hw4_realse_dataset/`:
 ```
 hw4_realse_dataset/
 ├── train/
-│   ├── degraded/    # rain-1.png, snow-1.png, ...
-│   └── clean/       # rain_clean-1.png, snow_clean-1.png, ...
+│   ├── degraded/    # rain-1000.png, snow-1000.png, ...
+│   └── clean/       # rain_clean-1000.png, snow_clean-1000.png, ...
 └── test/
     └── degraded/    # rain-1.png, snow-1.png, ... (no ground truth)
 ```
@@ -57,51 +50,86 @@ hw4_realse_dataset/
 ### Training
 
 ```bash
-python solution.py --mode train \
+python train_infer.py --mode train \
     --data_root ./hw4_realse_dataset \
     --gpu 0 \
     --epochs 200 \
     --batch_size 4 \
     --patch_size 128 \
-    --accum_steps 4
+    --accum_steps 4 \
+    --rain_weight 1.5
 ```
 
 ### Inference
 
 ```bash
-python solution.py --mode infer \
+python train_infer.py --mode infer \
     --data_root ./hw4_realse_dataset \
-    --ckpt ./checkpoints_v6/best.pth \
+    --ckpt ./checkpoints_v3/best.pth \
     --gpu 0 \
-    --output_dir ./output_v6
+    --output_dir ./output_v3
 ```
 
 ### Train then Infer (All-in-one)
 
 ```bash
-python solution.py --mode all \
+python train_infer.py --mode all \
     --data_root ./hw4_realse_dataset \
     --gpu 0
 ```
 
-### Resume from Checkpoint
+**Output:** `./output_v3/pred.npz` — keys are filenames (e.g. `rain-1.png`), values are `(3, H, W)` uint8 numpy arrays.
 
-```bash
-python solution.py --mode all \
-    --data_root ./hw4_realse_dataset \
-    --gpu 0 \
-    --resume
-```
+### All Arguments
 
-**Output:** `./output_v6/pred.npz` — keys are filenames (e.g. `rain-1.png`), values are `(3, H, W)` uint8 numpy arrays.
+| Argument | Default | Description |
+|---|---|---|
+| `--mode` | `train` | `train` / `infer` / `all` |
+| `--data_root` | `./hw4_realse_dataset` | Dataset root path |
+| `--ckpt_dir` | `./checkpoints_v3` | Checkpoint save directory |
+| `--ckpt` | `None` | Checkpoint path for inference |
+| `--output_dir` | `./output_v3` | Output directory for pred.npz |
+| `--dim` | `48` | Base channel dimension |
+| `--epochs` | `100` | Number of training epochs |
+| `--batch_size` | `8` | Batch size |
+| `--patch_size` | `128` | Random crop size |
+| `--lr` | `2e-4` | Learning rate |
+| `--num_workers` | `4` | DataLoader workers |
+| `--log_every` | `50` | Log interval (steps) |
+| `--gpu` | `0` | GPU index |
+| `--accum_steps` | `4` | Gradient accumulation steps |
+| `--rain_weight` | `1.5` | Loss weight for rain samples |
+
+---
+
+## Results
+
+### Training Curves — Main Model
+
+![Main Model Training Curves](assets/main_curves.png)
+
+*Training loss (left) and validation PSNR (right) for the main model. Best PSNR = 29.45 dB @ epoch 192.*
+
+![Main Model PSNR Histogram](assets/main_hist.png)
+
+*PSNR score distribution across all epochs for the main model.*
+
+### Training Curves — Baseline Model
+
+![Baseline Training Curves](assets/baseline_curves.png)
+
+*Training loss (left) and validation PSNR (right) for the baseline model. Best PSNR = 29.40 dB @ epoch 158.*
+
+![Baseline PSNR Histogram](assets/baseline_hist.png)
+
+*PSNR score distribution across all epochs for the baseline model.*
 
 ---
 
 ## Performance Snapshot
 
-<!-- Insert a screenshot of the leaderboard here -->
+![Leaderboard](assets/leaderboard.png)
 
-| Model | Val PSNR |
-|---|---|
-| Baseline (dim=48, Charbonnier loss) | 29.40 dB |
-| Main Model (dim=64, Combined loss + EMA) | 29.45 dB |
+| Model | Val PSNR | Best Epoch |
+|---|---|---|
+| PromptIR (dim=48, Charbonnier loss) | 29.40 dB | 158 / 200 |
