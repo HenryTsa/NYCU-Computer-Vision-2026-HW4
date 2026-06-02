@@ -1,7 +1,7 @@
 # NYCU Deep Vision 2026 HW4
 
-- **Student ID**: Your Student ID
-- **Name**: Your Name
+- **Student ID**: 314552047
+- **Name**: 蔡松豪
 
 ---
 
